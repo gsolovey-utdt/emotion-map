@@ -5,7 +5,7 @@ Actividad web estática para clase, inspirada en el trabajo de mapas corporales 
 ## Qué incluye
 - Flujo breve para estudiantes con estética similar a las apps `stroop` y `azar`.
 - Dos emociones iniciales: `enojo` y `tristeza`.
-- Dos mapas por emoción:
+- Dos siluetas simultáneas por emoción:
   - `activation`: zonas que se sienten más activas, intensas o encendidas.
   - `deactivation`: zonas que se sienten más débiles, apagadas o lentas.
 - Pintura binaria: pintado/no pintado, sin intensidad individual.

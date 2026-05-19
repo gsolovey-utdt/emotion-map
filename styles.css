@@ -344,28 +344,61 @@ input[type="range"] {
 }
 
 .task-instruction {
-  max-width: 800px;
-  margin: 0 0 20px;
+  max-width: 860px;
+  margin: 0 0 14px;
   color: var(--text);
-  font-size: clamp(1.02rem, 3vw, 1.24rem);
+  font-size: clamp(0.98rem, 2.6vw, 1.18rem);
 }
 
 .task-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 430px) minmax(260px, 1fr);
+  grid-template-columns: minmax(420px, 1fr) minmax(240px, 300px);
   gap: 18px;
   align-items: start;
 }
 
-.canvas-panel {
+.body-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.body-map {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
+.body-map-title {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-family: "DM Mono", monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.body-caption {
+  max-width: 220px;
+  margin: 10px auto 0;
+  padding: 9px 11px;
+  border: 1px solid rgba(232, 197, 71, 0.22);
+  border-radius: 9px;
+  background: rgba(232, 197, 71, 0.08);
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.32;
+  text-align: center;
+}
+
 .canvas-wrap {
   position: relative;
-  width: min(100%, 360px);
+  width: min(100%, 230px);
+  margin-inline: auto;
   aspect-ratio: 360 / 620;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -384,11 +417,11 @@ input[type="range"] {
   height: 100%;
 }
 
-#base-canvas {
+.base-canvas {
   z-index: 1;
 }
 
-#paint-canvas {
+.paint-canvas {
   z-index: 2;
   cursor: crosshair;
   touch-action: none;
@@ -627,7 +660,7 @@ input[type="range"] {
 
 @media (max-width: 760px) {
   .page {
-    padding: 26px 14px 44px;
+    padding: 8px 10px 12px;
   }
 
   .task-layout,
@@ -635,7 +668,134 @@ input[type="range"] {
     grid-template-columns: 1fr;
   }
 
+  .progress-wrap {
+    margin-bottom: 8px;
+  }
+
+  .progress-meta {
+    margin-bottom: 4px;
+    font-size: 10px;
+  }
+
   .task-header {
     align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .task-header .lab-badge.compact {
+    display: none;
+  }
+
+  .task-header .btn-small {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+
+  h2 {
+    font-size: clamp(1.35rem, 8vw, 1.85rem);
+    margin-bottom: 4px;
+  }
+
+  .task-instruction {
+    margin-bottom: 8px;
+    font-size: 0.8rem;
+    line-height: 1.25;
+  }
+
+  .task-layout {
+    gap: 8px;
+  }
+
+  .body-board {
+    gap: 8px;
+  }
+
+  .body-map-title {
+    margin-bottom: 5px;
+    font-size: 0.58rem;
+    letter-spacing: 0.06em;
+  }
+
+  .body-caption {
+    margin-top: 5px;
+    padding: 6px 7px;
+    border-radius: 7px;
+    font-size: 0.66rem;
+    line-height: 1.14;
+  }
+
+  .body-board .canvas-wrap {
+    width: min(41vw, 130px);
+    border-radius: 9px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+  }
+
+  .tool-panel {
+    gap: 7px;
+  }
+
+  .tools-card {
+    padding: 10px;
+    margin-bottom: 0;
+  }
+
+  .tools-card .card-title {
+    margin-bottom: 8px;
+  }
+
+  .segmented {
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .seg-btn {
+    min-height: 36px;
+    font-size: 0.8rem;
+  }
+
+  label {
+    margin-bottom: 3px;
+    font-size: 0.72rem;
+  }
+
+  .button-grid {
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .button-grid .btn {
+    min-height: 36px;
+    padding: 7px 8px;
+    font-size: 0.78rem;
+  }
+
+  .paint-status {
+    font-size: 0.68rem;
+  }
+
+  #next-button {
+    min-height: 42px;
+    padding: 9px 12px;
+  }
+}
+
+@media (max-width: 760px) and (max-height: 680px) {
+  .body-board .canvas-wrap {
+    width: min(39vw, 128px);
+  }
+
+  .body-caption {
+    padding: 4px 6px;
+    font-size: 0.56rem;
+  }
+
+  .task-instruction {
+    font-size: 0.74rem;
+  }
+
+  .tools-card {
+    padding: 8px;
   }
 }

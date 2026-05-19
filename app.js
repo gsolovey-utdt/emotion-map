@@ -18,12 +18,13 @@
   const MAX_HISTORY = 20;
   const BODY_MASK_VERSION = "paper_ref_v1";
   const MIN_PAINTED_PIXELS = 1;
-  const APP_VERSION = "20260519-0100";
+  const APP_VERSION = "20260519-0115";
 
   const EMOTIONS = [
     { id: "enojo", label: "Enojo" },
     { id: "tristeza", label: "Tristeza" }
   ];
+  const MAP_TYPE_ORDER = ["activation", "deactivation"];
 
   const MAP_TYPES = {
     activation: {
@@ -48,6 +49,7 @@
     tool: "paint",
     brushSize: 24,
     isDrawing: false,
+    activeMapType: "activation",
     lastPoint: null,
     undoStack: [],
     responses: [],
@@ -57,8 +59,7 @@
   };
 
   const ui = {};
-  let baseCtx;
-  let paintCtx;
+  const paintSurfaces = {};
   let maskCanvas;
   let maskCtx;
   let storeMaskCanvas;
@@ -66,6 +67,7 @@
   let bodyMaskImage;
   let bodyOutlineImage;
   let lastPointerId = null;
+  let lastPointerCanvas = null;
 
   // Cache for decoded bit arrays — avoids re-decoding identical masks on each heatmap render.
   const bitsCache = new Map();
@@ -82,7 +84,7 @@
     try {
       await loadBodyAssets();
       buildMasks();
-      drawBaseBody(baseCtx);
+      drawAllBaseBodies();
       setStartEnabled(true);
     } catch (error) {
       showTaskError("No se pudo cargar la silueta corporal. Revisá la carpeta assets.");
@@ -107,8 +109,12 @@
     ui.taskInstruction = document.getElementById("task-instruction");
     ui.taskError = document.getElementById("task-error");
 
-    ui.baseCanvas = document.getElementById("base-canvas");
-    ui.paintCanvas = document.getElementById("paint-canvas");
+    ui.baseCanvases = {};
+    ui.paintCanvases = {};
+    MAP_TYPE_ORDER.forEach((mapType) => {
+      ui.baseCanvases[mapType] = document.getElementById(`${mapType}-base-canvas`);
+      ui.paintCanvases[mapType] = document.getElementById(`${mapType}-paint-canvas`);
+    });
     ui.toolPaint = document.getElementById("tool-paint");
     ui.toolErase = document.getElementById("tool-erase");
     ui.brushSize = document.getElementById("brush-size");
@@ -132,11 +138,14 @@
     const classParam = (params.get("class") || params.get("class_id") || "").trim();
     state.classId = classParam || "default";
     state.debugEnabled = params.get("debug") === "1";
+    setDefaultBrushSize();
     if (state.debugEnabled) {
       window.emotionMapDebug = {
         version: APP_VERSION,
         state,
-        getStats: () => computePaintStats(),
+        getStats: () => Object.fromEntries(
+          MAP_TYPE_ORDER.map((mapType) => [mapType, computePaintStats(mapType)])
+        ),
         getButton: () => ({
           disabled: ui.nextButton ? ui.nextButton.disabled : null,
           text: ui.nextButton ? ui.nextButton.textContent : null,
@@ -147,8 +156,16 @@
   }
 
   function setupCanvas() {
-    baseCtx = ui.baseCanvas.getContext("2d");
-    paintCtx = ui.paintCanvas.getContext("2d", { willReadFrequently: true });
+    MAP_TYPE_ORDER.forEach((mapType) => {
+      const baseCanvas = ui.baseCanvases[mapType];
+      const paintCanvas = ui.paintCanvases[mapType];
+      paintSurfaces[mapType] = {
+        baseCanvas,
+        paintCanvas,
+        baseCtx: baseCanvas.getContext("2d"),
+        paintCtx: paintCanvas.getContext("2d", { willReadFrequently: true })
+      };
+    });
 
     maskCanvas = document.createElement("canvas");
     maskCanvas.width = CANVAS_WIDTH;
@@ -158,6 +175,17 @@
     storeMaskCanvas = document.createElement("canvas");
     storeMaskCanvas.width = STORE_WIDTH;
     storeMaskCanvas.height = STORE_HEIGHT;
+  }
+
+  function setDefaultBrushSize() {
+    const isTouchSized = window.matchMedia("(pointer: coarse), (max-width: 760px)").matches;
+    state.brushSize = isTouchSized ? 34 : 24;
+    if (ui.brushSize) {
+      ui.brushSize.value = String(state.brushSize);
+    }
+    if (ui.brushSizeValue) {
+      ui.brushSizeValue.textContent = String(state.brushSize);
+    }
   }
 
   function bindEvents() {
@@ -177,7 +205,7 @@
     if (ui.clearButton) {
       ui.clearButton.addEventListener("click", () => clearPaint(true));
     }
-    ui.nextButton.addEventListener("click", () => saveCurrentTask(false));
+    ui.nextButton.addEventListener("click", saveCurrentTask);
     if (ui.learnButton) {
       ui.learnButton.addEventListener("click", () => showScreen("learning"));
     }
@@ -192,13 +220,15 @@
     }
 
     // Pointer Events only — covers mouse, touch, and stylus uniformly.
-    // setPointerCapture (called in onPointerDown) ensures move/up events reach
-    // the canvas even when the pointer strays outside its bounds.
-    ui.paintCanvas.addEventListener("pointerdown", onPointerDown);
-    ui.paintCanvas.addEventListener("pointermove", onPointerMove);
-    ui.paintCanvas.addEventListener("pointerup", onPointerUp);
-    ui.paintCanvas.addEventListener("pointerleave", onPointerUp);
-    ui.paintCanvas.addEventListener("pointercancel", onPointerUp);
+    // setPointerCapture (called in onPointerDown) keeps drawing stable.
+    MAP_TYPE_ORDER.forEach((mapType) => {
+      const canvas = paintSurfaces[mapType].paintCanvas;
+      canvas.addEventListener("pointerdown", onPointerDown);
+      canvas.addEventListener("pointermove", onPointerMove);
+      canvas.addEventListener("pointerup", onPointerUp);
+      canvas.addEventListener("pointerleave", onPointerUp);
+      canvas.addEventListener("pointercancel", onPointerUp);
+    });
   }
 
   function setStartEnabled(enabled) {
@@ -282,10 +312,10 @@
   }
 
   function buildTaskList() {
-    return shuffle(EMOTIONS.slice()).flatMap((emotion) => [
-      { emotion: emotion.id, emotionLabel: emotion.label, mapType: "activation" },
-      { emotion: emotion.id, emotionLabel: emotion.label, mapType: "deactivation" }
-    ]);
+    return shuffle(EMOTIONS.slice()).map((emotion) => ({
+      emotion: emotion.id,
+      emotionLabel: emotion.label
+    }));
   }
 
   function renderTask() {
@@ -295,16 +325,16 @@
       return;
     }
 
-    const type = MAP_TYPES[task.mapType];
     ui.taskCounter.textContent = `${state.taskIndex + 1} / ${state.tasks.length}`;
     ui.progressFill.style.width = `${(state.taskIndex / state.tasks.length) * 100}%`;
     ui.taskTitle.textContent = task.emotionLabel;
-    ui.taskPhaseChip.textContent = type.label;
-    ui.taskPhaseChip.classList.toggle("deactivation", task.mapType === "deactivation");
-    ui.taskInstruction.textContent = type.instruction;
+    ui.taskPhaseChip.textContent = "Dos siluetas";
+    ui.taskPhaseChip.classList.remove("deactivation");
+    ui.taskInstruction.textContent = `Usá las figuras de abajo para indicar las sensaciones corporales que experimentás cuando sentís ${task.emotionLabel.toLowerCase()}.`;
     hideTaskError();
     setTool("paint");
     clearPaint(false);
+    state.activeMapType = "activation";
     state.undoStack = [];
     refreshPaintStatus();
   }
@@ -324,15 +354,18 @@
       return;
     }
     event.preventDefault();
+    const mapType = event.currentTarget.dataset.mapType || "activation";
+    state.activeMapType = mapType;
     lastPointerId = event.pointerId;
-    if (typeof ui.paintCanvas.setPointerCapture === "function") {
+    lastPointerCanvas = event.currentTarget;
+    if (typeof lastPointerCanvas.setPointerCapture === "function") {
       try {
-        ui.paintCanvas.setPointerCapture(lastPointerId);
+        lastPointerCanvas.setPointerCapture(lastPointerId);
       } catch (_) {
         lastPointerId = null;
       }
     }
-    startStroke(getCanvasPoint(event));
+    startStroke(mapType, getCanvasPoint(event, mapType));
   }
 
   function onPointerMove(event) {
@@ -340,16 +373,21 @@
       return;
     }
     event.preventDefault();
-    continueStroke(getCanvasPoint(event));
+    continueStroke(getCanvasPoint(event, state.activeMapType));
   }
 
   function onPointerUp() {
     if (!state.isDrawing) {
       return;
     }
-    if (lastPointerId !== null && ui.paintCanvas.hasPointerCapture(lastPointerId)) {
+    if (
+      lastPointerId !== null &&
+      lastPointerCanvas &&
+      typeof lastPointerCanvas.hasPointerCapture === "function" &&
+      lastPointerCanvas.hasPointerCapture(lastPointerId)
+    ) {
       try {
-        ui.paintCanvas.releasePointerCapture(lastPointerId);
+        lastPointerCanvas.releasePointerCapture(lastPointerId);
       } catch (_) {
         // Nothing to release.
       }
@@ -357,10 +395,11 @@
     endStroke();
   }
 
-  function startStroke(point) {
+  function startStroke(mapType, point) {
     state.isDrawing = true;
+    state.activeMapType = mapType;
     state.lastPoint = point;
-    pushUndoSnapshot();
+    pushUndoSnapshot(mapType);
     drawStrokeSegment(point, point);
   }
 
@@ -373,61 +412,79 @@
     state.isDrawing = false;
     state.lastPoint = null;
     lastPointerId = null;
+    lastPointerCanvas = null;
   }
 
   function drawStrokeSegment(from, to) {
-    const task = getCurrentTask();
-    if (!task) {
+    const surface = getSurface(state.activeMapType);
+    if (!surface) {
       return;
     }
+    const ctx = surface.paintCtx;
 
-    paintCtx.save();
-    paintCtx.lineCap = "round";
-    paintCtx.lineJoin = "round";
-    paintCtx.lineWidth = state.brushSize;
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = state.brushSize;
     if (state.tool === "erase") {
-      paintCtx.globalCompositeOperation = "destination-out";
-      paintCtx.strokeStyle = "rgba(0, 0, 0, 1)";
-      paintCtx.fillStyle = "rgba(0, 0, 0, 1)";
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.strokeStyle = "rgba(0, 0, 0, 1)";
+      ctx.fillStyle = "rgba(0, 0, 0, 1)";
     } else {
-      paintCtx.globalCompositeOperation = "source-over";
-      paintCtx.strokeStyle = MAP_TYPES[task.mapType].paintColor;
-      paintCtx.fillStyle = MAP_TYPES[task.mapType].paintColor;
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = MAP_TYPES[state.activeMapType].paintColor;
+      ctx.fillStyle = MAP_TYPES[state.activeMapType].paintColor;
     }
 
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     if (Math.hypot(dx, dy) < 0.5) {
-      paintCtx.beginPath();
-      paintCtx.arc(to.x, to.y, state.brushSize / 2, 0, Math.PI * 2);
-      paintCtx.fill();
+      ctx.beginPath();
+      ctx.arc(to.x, to.y, state.brushSize / 2, 0, Math.PI * 2);
+      ctx.fill();
     } else {
-      paintCtx.beginPath();
-      paintCtx.moveTo(from.x, from.y);
-      paintCtx.lineTo(to.x, to.y);
-      paintCtx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
     }
-    paintCtx.restore();
+    ctx.restore();
 
-    applyBodyMask();
+    applyBodyMask(state.activeMapType);
     hideTaskError();
     refreshPaintStatus();
   }
 
-  function applyBodyMask() {
-    paintCtx.save();
-    paintCtx.globalCompositeOperation = "destination-in";
-    paintCtx.drawImage(maskCanvas, 0, 0);
-    paintCtx.restore();
+  function applyBodyMask(mapType) {
+    const surface = getSurface(mapType);
+    if (!surface) {
+      return;
+    }
+    surface.paintCtx.save();
+    surface.paintCtx.globalCompositeOperation = "destination-in";
+    surface.paintCtx.drawImage(maskCanvas, 0, 0);
+    surface.paintCtx.restore();
   }
 
   // Stores the 120×207 bitset (~3 KB) instead of a full 360×620 RGBA ImageData (~900 KB),
   // keeping the undo stack lean on mobile.
-  function pushUndoSnapshot() {
-    const task = getCurrentTask();
+  function pushUndoSnapshot(mapType = state.activeMapType) {
     state.undoStack.push({
-      bits: encodePaintBitsRaw(),
-      mapType: task ? task.mapType : "activation"
+      bits: encodePaintBitsRaw(mapType),
+      mapType
+    });
+    if (state.undoStack.length > MAX_HISTORY) {
+      state.undoStack.shift();
+    }
+  }
+
+  function pushClearSnapshot() {
+    state.undoStack.push({
+      kind: "all",
+      snapshots: MAP_TYPE_ORDER.map((mapType) => ({
+        bits: encodePaintBitsRaw(mapType),
+        mapType
+      }))
     });
     if (state.undoStack.length > MAX_HISTORY) {
       state.undoStack.shift();
@@ -439,21 +496,31 @@
       return;
     }
     const entry = state.undoStack.pop();
-    restoreFromBits(entry.bits, entry.mapType);
+    if (entry.kind === "all") {
+      entry.snapshots.forEach((snapshot) => restoreFromBits(snapshot.bits, snapshot.mapType));
+    } else {
+      restoreFromBits(entry.bits, entry.mapType);
+      state.activeMapType = entry.mapType;
+    }
     refreshPaintStatus();
   }
 
   // Re-renders the canvas from a stored 120×207 bitset.
   function restoreFromBits(bits, mapType) {
-    paintCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    const surface = getSurface(mapType);
+    if (!surface) {
+      return;
+    }
+    const ctx = surface.paintCtx;
+    ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     const cellW = CANVAS_WIDTH / STORE_WIDTH;
     const cellH = CANVAS_HEIGHT / STORE_HEIGHT;
-    paintCtx.fillStyle = MAP_TYPES[mapType].paintColor;
+    ctx.fillStyle = MAP_TYPES[mapType].paintColor;
     for (let i = 0; i < STORE_WIDTH * STORE_HEIGHT; i += 1) {
       if (getBit(bits, i)) {
         const sx = i % STORE_WIDTH;
         const sy = Math.floor(i / STORE_WIDTH);
-        paintCtx.fillRect(
+        ctx.fillRect(
           Math.floor(sx * cellW),
           Math.floor(sy * cellH),
           Math.ceil(cellW + 0.5),
@@ -461,41 +528,56 @@
         );
       }
     }
-    applyBodyMask();
+    applyBodyMask(mapType);
   }
 
   function clearPaint(withHistory) {
     if (withHistory) {
-      pushUndoSnapshot();
+      pushClearSnapshot();
     }
-    paintCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    MAP_TYPE_ORDER.forEach((mapType) => {
+      const surface = getSurface(mapType);
+      if (surface) {
+        surface.paintCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      }
+    });
     refreshPaintStatus();
   }
 
-  function saveCurrentTask(noChange) {
+  function saveCurrentTask() {
     const task = getCurrentTask();
     if (!task) {
       return;
     }
 
     hideTaskError();
-    const stats = computePaintStats();
-    if (!noChange && stats.paintedPixels < MIN_PAINTED_PIXELS) {
-      showTaskError("Todavía no hay ninguna marca dentro de la silueta. Pintá una zona del cuerpo para poder guardar.");
+    const statsByType = Object.fromEntries(
+      MAP_TYPE_ORDER.map((mapType) => [mapType, computePaintStats(mapType)])
+    );
+    const totalPainted = MAP_TYPE_ORDER.reduce(
+      (total, mapType) => total + statsByType[mapType].paintedPixels,
+      0
+    );
+    if (totalPainted < MIN_PAINTED_PIXELS) {
+      showTaskError("Todavía no hay ninguna marca dentro de las siluetas. Pintá una zona del cuerpo para poder guardar.");
       refreshPaintStatus();
       return;
     }
 
-    const response = {
-      emotion: task.emotion,
-      emotionLabel: task.emotionLabel,
-      mapType: task.mapType,
-      noChange: Boolean(noChange),
-      paintedPixels: noChange ? 0 : stats.paintedPixels,
-      maskBitsB64: noChange ? emptyBitsBase64() : encodePaintBits()
-    };
+    const responses = MAP_TYPE_ORDER.map((mapType) => {
+      const paintedPixels = statsByType[mapType].paintedPixels;
+      const noChange = paintedPixels < MIN_PAINTED_PIXELS;
+      return {
+        emotion: task.emotion,
+        emotionLabel: task.emotionLabel,
+        mapType,
+        noChange,
+        paintedPixels,
+        maskBitsB64: noChange ? emptyBitsBase64() : encodePaintBits(mapType)
+      };
+    });
 
-    state.responses.push(response);
+    state.responses.push(...responses);
     state.taskIndex += 1;
     ui.progressFill.style.width = `${(state.taskIndex / state.tasks.length) * 100}%`;
 
@@ -739,8 +821,25 @@
     ctx.drawImage(bodyTemplateImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   }
 
-  function computePaintStats() {
-    const data = paintCtx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+  function drawAllBaseBodies() {
+    MAP_TYPE_ORDER.forEach((mapType) => {
+      const surface = getSurface(mapType);
+      if (surface) {
+        drawBaseBody(surface.baseCtx);
+      }
+    });
+  }
+
+  function getSurface(mapType) {
+    return paintSurfaces[mapType] || null;
+  }
+
+  function computePaintStats(mapType) {
+    const surface = getSurface(mapType);
+    if (!surface) {
+      return { paintedPixels: 0 };
+    }
+    const data = surface.paintCtx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
     let paintedPixels = 0;
     for (let i = 0; i < data.length; i += 4) {
       if (data[i + 3] > 0) {
@@ -754,19 +853,26 @@
     if (!ui.nextButton || !ui.paintStatus) {
       return;
     }
-    const stats = computePaintStats();
-    const hasPaint = stats.paintedPixels >= MIN_PAINTED_PIXELS;
+    const totalPainted = MAP_TYPE_ORDER.reduce(
+      (total, mapType) => total + computePaintStats(mapType).paintedPixels,
+      0
+    );
+    const hasPaint = totalPainted >= MIN_PAINTED_PIXELS;
     ui.nextButton.disabled = !hasPaint;
-    ui.nextButton.textContent = hasPaint ? "Guardar y continuar" : "Pintá una zona para guardar";
+    ui.nextButton.textContent = hasPaint ? "Guardar y continuar" : "Pintá al menos una zona";
     ui.paintStatus.textContent = hasPaint
-      ? `Marca detectada (${stats.paintedPixels} píxeles).`
-      : "Pintá una zona dentro de la silueta para poder guardar.";
+      ? `Marca detectada (${totalPainted} píxeles).`
+      : "Pintá al menos una zona en alguna de las dos siluetas.";
     ui.paintStatus.classList.toggle("ready", hasPaint);
   }
 
   // Returns the 120×207 bitset as a Uint8Array (used internally for undo stack).
-  function encodePaintBitsRaw() {
-    const source = paintCtx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
+  function encodePaintBitsRaw(mapType = state.activeMapType) {
+    const surface = getSurface(mapType);
+    if (!surface) {
+      return new Uint8Array(Math.ceil((STORE_WIDTH * STORE_HEIGHT) / 8));
+    }
+    const source = surface.paintCtx.getImageData(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT).data;
     const bytes = new Uint8Array(Math.ceil((STORE_WIDTH * STORE_HEIGHT) / 8));
     for (let sy = 0; sy < STORE_HEIGHT; sy += 1) {
       const y0 = Math.floor((sy * CANVAS_HEIGHT) / STORE_HEIGHT);
@@ -792,8 +898,8 @@
     return bytes;
   }
 
-  function encodePaintBits() {
-    return bytesToBase64(encodePaintBitsRaw());
+  function encodePaintBits(mapType = state.activeMapType) {
+    return bytesToBase64(encodePaintBitsRaw(mapType));
   }
 
   function emptyBitsBase64() {
@@ -829,12 +935,13 @@
     return bytes;
   }
 
-  function getCanvasPoint(event) {
-    return getCanvasPointFromClient(event.clientX, event.clientY);
+  function getCanvasPoint(event, mapType) {
+    return getCanvasPointFromClient(event.clientX, event.clientY, mapType);
   }
 
-  function getCanvasPointFromClient(clientX, clientY) {
-    const rect = ui.paintCanvas.getBoundingClientRect();
+  function getCanvasPointFromClient(clientX, clientY, mapType) {
+    const surface = getSurface(mapType);
+    const rect = surface.paintCanvas.getBoundingClientRect();
     return {
       x: ((clientX - rect.left) * CANVAS_WIDTH) / rect.width,
       y: ((clientY - rect.top) * CANVAS_HEIGHT) / rect.height

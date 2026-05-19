@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Mapas corporales · NyPE</title>
-  <link rel="stylesheet" href="./styles.css?v=20260519-0100">
+  <link rel="stylesheet" href="./styles.css?v=20260519-0115">
 </head>
 <body>
   <main class="page">
@@ -27,11 +27,11 @@
           </div>
           <div class="step-item">
             <div class="step-num">2</div>
-            <div class="step-text">Para cada emoción, primero pintá la zona de tu cuerpo que sentís <strong>más activa, intensa o encendida</strong>.</div>
+            <div class="step-text">Para cada emoción vas a ver <strong>dos siluetas al mismo tiempo</strong>.</div>
           </div>
           <div class="step-item">
             <div class="step-num">3</div>
-            <div class="step-text">Después pintá la zona que sentís <strong>más débil, apagada o lenta</strong>.</div>
+            <div class="step-text">En una pintá lo que se vuelve <strong>más fuerte o rápido</strong>; en la otra, lo que se vuelve <strong>más débil o lento</strong>.</div>
           </div>
         </div>
       </div>
@@ -51,8 +51,8 @@
     <section id="screen-task" class="screen task-screen">
       <div class="progress-wrap">
         <div class="progress-meta">
-          <span id="task-counter">1 / 4</span>
-          <span id="task-phase-chip" class="phase-chip">Activación</span>
+          <span id="task-counter">1 / 2</span>
+          <span id="task-phase-chip" class="phase-chip">Dos siluetas</span>
         </div>
         <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
       </div>
@@ -68,10 +68,23 @@
       <p id="task-instruction" class="task-instruction"></p>
 
       <div class="task-layout">
-        <div class="canvas-panel">
-          <div class="canvas-wrap">
-            <canvas id="base-canvas" width="360" height="620" aria-hidden="true"></canvas>
-            <canvas id="paint-canvas" width="360" height="620" aria-label="Lienzo para pintar zonas corporales"></canvas>
+        <div class="body-board">
+          <div class="body-map">
+            <div class="body-map-title">Más fuerte o rápida</div>
+            <div class="canvas-wrap">
+              <canvas id="activation-base-canvas" class="base-canvas" width="360" height="620" aria-hidden="true"></canvas>
+              <canvas id="activation-paint-canvas" class="paint-canvas" data-map-type="activation" width="360" height="620" aria-label="Lienzo para pintar zonas con más activación"></canvas>
+            </div>
+            <p class="body-caption">En este cuerpo, pintá las regiones cuya actividad se vuelve más fuerte o más rápida.</p>
+          </div>
+
+          <div class="body-map">
+            <div class="body-map-title">Más débil o lenta</div>
+            <div class="canvas-wrap">
+              <canvas id="deactivation-base-canvas" class="base-canvas" width="360" height="620" aria-hidden="true"></canvas>
+              <canvas id="deactivation-paint-canvas" class="paint-canvas" data-map-type="deactivation" width="360" height="620" aria-label="Lienzo para pintar zonas con menor activación"></canvas>
+            </div>
+            <p class="body-caption">En este cuerpo, pintá las regiones cuya actividad se vuelve más débil o más lenta.</p>
           </div>
         </div>
 
@@ -94,7 +107,7 @@
           </div>
 
           <div id="task-error" class="alert alert-error hidden" role="alert"></div>
-          <p id="paint-status" class="paint-status">Pintá una zona dentro de la silueta para poder guardar.</p>
+          <p id="paint-status" class="paint-status">Pintá al menos una zona para poder guardar.</p>
           <button id="next-button" class="btn btn-primary" type="button">Guardar y continuar</button>
         </div>
       </div>
@@ -167,6 +180,6 @@
     </section>
   </main>
 
-  <script src="./app.js?v=20260519-0100" defer></script>
+  <script src="./app.js?v=20260519-0115" defer></script>
 </body>
 </html>
