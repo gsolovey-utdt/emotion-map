@@ -18,7 +18,7 @@
   const MAX_HISTORY = 20;
   const BODY_MASK_VERSION = "paper_ref_v1";
   const MIN_PAINTED_PIXELS = 1;
-  const APP_VERSION = "20260519-0125";
+  const APP_VERSION = "20260519-0130";
 
   const EMOTIONS = [
     { id: "enojo", label: "Enojo" },
