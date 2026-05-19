@@ -8,6 +8,7 @@ Actividad web estática para clase, inspirada en el trabajo de mapas corporales 
 - Dos siluetas simultáneas por emoción:
   - `activation`: zonas que se sienten más activas, intensas o encendidas.
   - `deactivation`: zonas que se sienten más débiles, apagadas o lentas.
+- En teléfonos, esas dos siluetas se completan de a una para mantener buen tamaño de dibujo.
 - Pintura binaria: pintado/no pintado, sin intensidad individual.
 - Herramientas: pintar, borrar, deshacer, limpiar y tamaño de trazo.
 - Guardado en Supabase en la tabla `emotion_map_responses`.

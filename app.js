@@ -18,7 +18,7 @@
   const MAX_HISTORY = 20;
   const BODY_MASK_VERSION = "paper_ref_v1";
   const MIN_PAINTED_PIXELS = 1;
-  const APP_VERSION = "20260519-0115";
+  const APP_VERSION = "20260519-0120";
 
   const EMOTIONS = [
     { id: "enojo", label: "Enojo" },
@@ -108,6 +108,8 @@
     ui.taskTitle = document.getElementById("task-title");
     ui.taskInstruction = document.getElementById("task-instruction");
     ui.taskError = document.getElementById("task-error");
+    ui.bodyMaps = Array.from(document.querySelectorAll(".body-map"));
+    ui.mobileMapTabs = Array.from(document.querySelectorAll(".mobile-map-tab"));
 
     ui.baseCanvases = {};
     ui.paintCanvases = {};
@@ -194,6 +196,9 @@
 
     ui.toolPaint.addEventListener("click", () => setTool("paint"));
     ui.toolErase.addEventListener("click", () => setTool("erase"));
+    ui.mobileMapTabs.forEach((button) => {
+      button.addEventListener("click", () => setActiveMapType(button.dataset.mapType || "activation"));
+    });
     ui.brushSize.addEventListener("input", () => {
       state.brushSize = Number(ui.brushSize.value);
       ui.brushSizeValue.textContent = String(state.brushSize);
@@ -229,6 +234,7 @@
       canvas.addEventListener("pointerleave", onPointerUp);
       canvas.addEventListener("pointercancel", onPointerUp);
     });
+    window.addEventListener("resize", updateMobileBodyMode);
   }
 
   function setStartEnabled(enabled) {
@@ -336,6 +342,7 @@
     clearPaint(false);
     state.activeMapType = "activation";
     state.undoStack = [];
+    updateMobileBodyMode();
     refreshPaintStatus();
   }
 
@@ -347,6 +354,37 @@
     state.tool = tool;
     ui.toolPaint.classList.toggle("active", tool === "paint");
     ui.toolErase.classList.toggle("active", tool === "erase");
+  }
+
+  function setActiveMapType(mapType) {
+    if (!MAP_TYPES[mapType]) {
+      return;
+    }
+    state.activeMapType = mapType;
+    updateMobileBodyMode();
+    refreshPaintStatus();
+  }
+
+  function isSingleBodyMobile() {
+    return window.matchMedia("(max-width: 760px)").matches;
+  }
+
+  function updateMobileBodyMode() {
+    const singleBody = isSingleBodyMobile();
+    ui.bodyMaps.forEach((map) => {
+      const isActive = map.dataset.mapType === state.activeMapType;
+      map.classList.toggle("mobile-active", isActive);
+    });
+    ui.mobileMapTabs.forEach((button) => {
+      const isActive = button.dataset.mapType === state.activeMapType;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
+    if (ui.taskPhaseChip) {
+      ui.taskPhaseChip.textContent = singleBody
+        ? (state.activeMapType === "activation" ? "Silueta 1 / 2" : "Silueta 2 / 2")
+        : "Dos siluetas";
+    }
   }
 
   function onPointerDown(event) {
@@ -502,6 +540,7 @@
       restoreFromBits(entry.bits, entry.mapType);
       state.activeMapType = entry.mapType;
     }
+    updateMobileBodyMode();
     refreshPaintStatus();
   }
 
@@ -547,6 +586,11 @@
   function saveCurrentTask() {
     const task = getCurrentTask();
     if (!task) {
+      return;
+    }
+
+    if (isSingleBodyMobile() && state.activeMapType === "activation") {
+      setActiveMapType("deactivation");
       return;
     }
 
@@ -857,6 +901,16 @@
       (total, mapType) => total + computePaintStats(mapType).paintedPixels,
       0
     );
+    if (isSingleBodyMobile() && state.activeMapType === "activation") {
+      const activePixels = computePaintStats("activation").paintedPixels;
+      ui.nextButton.disabled = false;
+      ui.nextButton.textContent = "Seguir con más débil";
+      ui.paintStatus.textContent = activePixels >= MIN_PAINTED_PIXELS
+        ? `Marca detectada (${activePixels} píxeles).`
+        : "Pintá este cuerpo o continuá con la segunda silueta.";
+      ui.paintStatus.classList.toggle("ready", activePixels >= MIN_PAINTED_PIXELS);
+      return;
+    }
     const hasPaint = totalPainted >= MIN_PAINTED_PIXELS;
     ui.nextButton.disabled = !hasPaint;
     ui.nextButton.textContent = hasPaint ? "Guardar y continuar" : "Pintá al menos una zona";
