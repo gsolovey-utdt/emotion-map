@@ -18,7 +18,7 @@
   const MAX_HISTORY = 20;
   const BODY_MASK_VERSION = "paper_ref_v1";
   const MIN_PAINTED_PIXELS = 1;
-  const APP_VERSION = "20260519-0130";
+  const APP_VERSION = "20260521-1200";
 
   const EMOTIONS = [
     { id: "enojo", label: "Enojo" },
@@ -37,6 +37,21 @@
       paintColor: "rgba(96, 165, 250, 0.9)",
       instruction: "Ahora pintá las zonas de tu cuerpo que sentís más débiles, apagadas o lentas cuando aparece esta emoción."
     }
+  };
+  const HEATMAP_DISPLAY_GAMMA = 0.7;
+  const HEATMAP_COLOR_STOPS = {
+    positive: [
+      { at: 0, color: { r: 0, g: 0, b: 0 } },
+      { at: 0.42, color: { r: 230, g: 0, b: 0 } },
+      { at: 0.76, color: { r: 255, g: 176, b: 0 } },
+      { at: 1, color: { r: 255, g: 255, b: 104 } }
+    ],
+    negative: [
+      { at: 0, color: { r: 0, g: 0, b: 0 } },
+      { at: 0.42, color: { r: 0, g: 24, b: 205 } },
+      { at: 0.76, color: { r: 0, g: 176, b: 255 } },
+      { at: 1, color: { r: 104, g: 255, b: 255 } }
+    ]
   };
 
   const state = {
@@ -821,9 +836,6 @@
       for (let x = 0; x < STORE_WIDTH; x += 1) {
         const index = y * STORE_WIDTH + x;
         const value = (activation[index] - deactivation[index]) / participantCount;
-        if (value === 0) {
-          continue;
-        }
         heatCtx.fillStyle = heatColor(value);
         heatCtx.fillRect(x * cellW, y * cellH, Math.ceil(cellW) + 0.4, Math.ceil(cellH) + 0.4);
       }
@@ -840,11 +852,22 @@
 
   function heatColor(value) {
     const t = Math.max(0, Math.min(1, Math.abs(value)));
-    const alpha = 0.18 + t * 0.78;
-    const color = value >= 0
-      ? interpolateColor({ r: 255, g: 229, b: 120 }, { r: 185, g: 28, b: 28 }, t)
-      : interpolateColor({ r: 191, g: 219, b: 254 }, { r: 37, g: 99, b: 235 }, t);
-    return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha.toFixed(3)})`;
+    const amount = t === 0 ? 0 : Math.pow(t, HEATMAP_DISPLAY_GAMMA);
+    const stops = value >= 0 ? HEATMAP_COLOR_STOPS.positive : HEATMAP_COLOR_STOPS.negative;
+    const color = sampleColorScale(stops, amount);
+    return `rgb(${color.r}, ${color.g}, ${color.b})`;
+  }
+
+  function sampleColorScale(stops, amount) {
+    for (let i = 1; i < stops.length; i += 1) {
+      const previous = stops[i - 1];
+      const next = stops[i];
+      if (amount <= next.at) {
+        const span = next.at - previous.at || 1;
+        return interpolateColor(previous.color, next.color, (amount - previous.at) / span);
+      }
+    }
+    return stops[stops.length - 1].color;
   }
 
   function interpolateColor(from, to, amount) {
