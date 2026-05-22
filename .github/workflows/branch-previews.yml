@@ -1,0 +1,119 @@
+name: Branch previews
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-pages-branch-previews
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current branch
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-source
+
+      - name: Prepare publish branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if git clone --depth=1 --branch gh-pages "$REPO_URL" site; then
+            echo "Using existing gh-pages branch"
+          else
+            mkdir site
+            cd site
+            git init
+            git checkout -b gh-pages
+            git remote add origin "$REPO_URL"
+            cd ..
+          fi
+
+      - name: Copy main and branch preview
+        run: |
+          set -euo pipefail
+
+          copy_static_site() {
+            local src="$1"
+            local dest="$2"
+            shift 2
+            mkdir -p "$dest"
+            rsync -a --delete \
+              --exclude ".git" \
+              --exclude ".github" \
+              "$@" \
+              "$src"/ "$dest"/
+          }
+
+          BRANCH_NAME="${GITHUB_REF_NAME}"
+          SAFE_BRANCH="$(printf '%s' "$BRANCH_NAME" | sed 's#[^A-Za-z0-9._-]#-#g')"
+
+          copy_static_site "main-source" "site" --exclude "previews"
+          touch "site/.nojekyll"
+
+          mkdir -p "site/previews"
+
+          if [ "$BRANCH_NAME" != "main" ]; then
+            copy_static_site "source" "site/previews/$SAFE_BRANCH"
+          fi
+
+          {
+            cat <<'HTML'
+          <!doctype html>
+          <html lang="es">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Previews</title>
+          </head>
+          <body>
+            <h1>Branch previews</h1>
+            <ul>
+          HTML
+
+            for dir in site/previews/*/; do
+              [ -d "$dir" ] || continue
+              name="$(basename "$dir")"
+              printf '      <li><a href="./%s/">%s</a></li>\n' "$name" "$name"
+            done
+
+            cat <<'HTML'
+            </ul>
+          </body>
+          </html>
+          HTML
+          } > site/previews/index.html
+
+      - name: Commit and push publish branch
+        run: |
+          set -euo pipefail
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No publish changes"
+            exit 0
+          fi
+
+          git commit -m "Publish ${GITHUB_REF_NAME}"
+          git push origin HEAD:gh-pages
