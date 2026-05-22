@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · Mapas corporales · NyPE</title>
+  <link rel="stylesheet" href="./styles.css?v=20260521-1200">
+  <style>
+    .admin-wrap { width: 100%; max-width: 1120px; padding: 36px 18px 56px; }
+    .controls { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; gap: 10px; align-items: end; margin: 18px 0; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; font-size: .82rem; }
+    th { color: var(--muted); font-family: "DM Mono", monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+    td { color: var(--text-dim); }
+    .admin-status { color: var(--muted); font-family: "DM Mono", monospace; font-size: .82rem; }
+    @media (max-width: 760px) { .controls { grid-template-columns: 1fr; } }
+    .btn-danger { background: transparent; border: 1px solid rgba(248,113,113,0.4); color: #fca5a5; }
+    .btn-danger:hover { border-color: #f87171; color: #fecaca; }
+    .token-gate { max-width: 400px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <main class="admin-wrap">
+    <div class="lab-badge">NyPE · Admin</div>
+    <h1>Panel de<br><span>mapas corporales</span></h1>
+    <p class="subtitle">Resumen colectivo por clase, emoción y tipo de cambio corporal.</p>
+
+    <div class="controls">
+      <div class="field">
+        <label for="class-id">Clase</label>
+        <input id="class-id" type="text" value="default">
+      </div>
+      <button id="load-button" class="btn btn-primary" type="button">Actualizar</button>
+      <button id="export-button" class="btn btn-secondary" type="button">Exportar CSV</button>
+      <button id="delete-button" class="btn btn-danger" type="button">Borrar datos de esta clase</button>
+    </div>
+
+    <div id="status" class="save-status">Sin datos cargados.</div>
+
+    <div class="results-grid">
+      <div class="stat-card">
+        <div class="stat-label">Registros</div>
+        <div id="stat-rows" class="stat-value">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Participantes</div>
+        <div id="stat-participants" class="stat-value">0</div>
+      </div>
+    </div>
+
+    <div class="heatmap-legend" aria-label="Escala de color de los mapas colectivos">
+      <span><i class="legend-swatch diverging"></i>m&aacute;s debilitamiento &larr; neutro/cancelado &rarr; m&aacute;s activaci&oacute;n</span>
+    </div>
+
+    <div id="heatmap-grid" class="heatmap-grid"></div>
+
+    <div class="card" style="margin-top:18px;">
+      <div class="card-title">Registros individuales</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Participante</th>
+              <th>Sesión</th>
+              <th>Emoción</th>
+              <th>Tipo</th>
+              <th>Píxeles</th>
+              <th>Sin cambios</th>
+              <th>Fecha</th>
+            </tr>
+          </thead>
+          <tbody id="rows-body">
+            <tr><td colspan="7">Sin datos.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <script>
+  (function adminEmotionMaps() {
+    "use strict";
+
+    const SUPABASE_URL = "https://irryksaoygdklwtsjsru.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_9zF3s9-hDyRRVi5OqAFP-w_z9Mrx9bt";
+    const SB_REST = `${SUPABASE_URL}/rest/v1/emotion_map_responses`;
+    const SB_HEADERS = {
+      "Content-Type": "application/json",
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+    };
+
+    const CANVAS_WIDTH = 360;
+    const CANVAS_HEIGHT = 620;
+    const STORE_WIDTH = 120;
+    const STORE_HEIGHT = 207;
+    const BODY_MASK_VERSION = "paper_ref_v1";
+    const HEATMAP_DISPLAY_GAMMA = 0.7;
+    const HEATMAP_COLOR_STOPS = {
+      positive: [
+        { at: 0, color: { r: 0, g: 0, b: 0 } },
+        { at: 0.42, color: { r: 230, g: 0, b: 0 } },
+        { at: 0.76, color: { r: 255, g: 176, b: 0 } },
+        { at: 1, color: { r: 255, g: 255, b: 104 } }
+      ],
+      negative: [
+        { at: 0, color: { r: 0, g: 0, b: 0 } },
+        { at: 0.42, color: { r: 0, g: 24, b: 205 } },
+        { at: 0.76, color: { r: 0, g: 176, b: 255 } },
+        { at: 1, color: { r: 104, g: 255, b: 255 } }
+      ]
+    };
+    const EMOTIONS = [
+      { id: "enojo", label: "Enojo" },
+      { id: "tristeza", label: "Tristeza" }
+    ];
+    const MAP_TYPES = {
+      activation: "Activación",
+      deactivation: "Debilitamiento"
+    };
+
+    let allRows = [];
+    let bodyTemplateImage;
+    let bodyMaskImage;
+    let bodyOutlineImage;
+    let maskCanvas;
+
+    const ui = {
+      classId: document.getElementById("class-id"),
+      loadButton: document.getElementById("load-button"),
+      exportButton: document.getElementById("export-button"),
+      deleteButton: document.getElementById("delete-button"),
+      status: document.getElementById("status"),
+      statRows: document.getElementById("stat-rows"),
+      statParticipants: document.getElementById("stat-participants"),
+      heatmapGrid: document.getElementById("heatmap-grid"),
+      rowsBody: document.getElementById("rows-body")
+    };
+
+    // Cambiar este token antes de compartir la URL del admin.
+    const ADMIN_TOKEN = "nype-admin-2026";
+
+    document.addEventListener("DOMContentLoaded", init);
+
+    async function init() {
+      const params = new URLSearchParams(window.location.search);
+      const providedToken = params.get("token") || "";
+      if (providedToken !== ADMIN_TOKEN) {
+        showTokenGate();
+        return;
+      }
+      ui.classId.value = params.get("class") || params.get("class_id") || "default";
+      ui.loadButton.addEventListener("click", loadData);
+      ui.exportButton.addEventListener("click", exportCSV);
+      ui.deleteButton.addEventListener("click", deleteClassData);
+      bodyTemplateImage = await loadImage("./assets/body-template.png");
+      bodyMaskImage = await loadImage("./assets/body-mask.png");
+      bodyOutlineImage = await loadImage("./assets/body-outline.png");
+      maskCanvas = document.createElement("canvas");
+      maskCanvas.width = CANVAS_WIDTH;
+      maskCanvas.height = CANVAS_HEIGHT;
+      maskCanvas.getContext("2d").drawImage(bodyMaskImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      loadData();
+    }
+
+    function loadImage(src) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = reject;
+        image.src = src;
+      });
+    }
+
+    async function loadData() {
+      const classId = ui.classId.value.trim() || "default";
+      setStatus("Cargando datos...", "");
+      try {
+        const params = [
+          "select=participant_id,session_id,class_id,emotion,map_type,mask_bits_b64,store_width,store_height,painted_pixels,no_change,created_at,body_mask_version",
+          `class_id=eq.${encodeURIComponent(classId)}`,
+          `body_mask_version=eq.${encodeURIComponent(BODY_MASK_VERSION)}`,
+          "order=created_at.desc"
+        ].join("&");
+        const res = await fetch(`${SB_REST}?${params}`, { headers: SB_HEADERS });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        }
+        allRows = await res.json();
+        setStatus(`${allRows.length} registros cargados.`, "ok");
+        render();
+      } catch (error) {
+        console.warn(error);
+        setStatus("No se pudieron cargar datos desde Supabase.", "err");
+      }
+    }
+
+    function render() {
+      ui.statRows.textContent = String(allRows.length);
+      ui.statParticipants.textContent = String(countParticipants(allRows));
+      renderHeatmaps();
+      renderTable();
+    }
+
+    function renderHeatmaps() {
+      ui.heatmapGrid.innerHTML = "";
+      EMOTIONS.forEach((emotion) => {
+        const rows = allRows.filter((row) =>
+          row.emotion === emotion.id &&
+          row.store_width === STORE_WIDTH &&
+          row.store_height === STORE_HEIGHT
+        );
+        const card = document.createElement("div");
+        card.className = "heatmap-card";
+        card.innerHTML = `
+          <div class="heatmap-title">${escapeHtml(emotion.label)}</div>
+          <canvas width="${CANVAS_WIDTH}" height="${CANVAS_HEIGHT}"></canvas>
+          <div class="heatmap-meta">n = ${countParticipants(rows)} participantes</div>
+        `;
+        ui.heatmapGrid.appendChild(card);
+        drawCollectiveHeatmap(card.querySelector("canvas"), rows);
+      });
+    }
+
+    function renderTable() {
+      if (!allRows.length) {
+        ui.rowsBody.innerHTML = '<tr><td colspan="7">Sin datos.</td></tr>';
+        return;
+      }
+      ui.rowsBody.innerHTML = allRows.map((row) => `
+        <tr>
+          <td>${escapeHtml(row.participant_id || "Anónimo")}</td>
+          <td>${escapeHtml((row.session_id || "").slice(0, 8))}</td>
+          <td>${escapeHtml(row.emotion)}</td>
+          <td>${escapeHtml(MAP_TYPES[row.map_type] || row.map_type)}</td>
+          <td>${row.painted_pixels ?? 0}</td>
+          <td>${row.no_change ? "sí" : "no"}</td>
+          <td>${row.created_at ? new Date(row.created_at).toLocaleString("es-AR") : "-"}</td>
+        </tr>
+      `).join("");
+    }
+
+    function drawCollectiveHeatmap(canvas, rows) {
+      const ctx = canvas.getContext("2d");
+      drawBaseBody(ctx);
+      if (!rows.length) {
+        return;
+      }
+      const activation = new Uint16Array(STORE_WIDTH * STORE_HEIGHT);
+      const deactivation = new Uint16Array(STORE_WIDTH * STORE_HEIGHT);
+      rows.forEach((row) => {
+        if (row.map_type !== "activation" && row.map_type !== "deactivation") {
+          return;
+        }
+        const target = row.map_type === "activation" ? activation : deactivation;
+        const bits = decodeBits(row.mask_bits_b64);
+        for (let i = 0; i < target.length; i += 1) {
+          if (getBit(bits, i)) {
+            target[i] += 1;
+          }
+        }
+      });
+
+      const participantCount = Math.max(1, countParticipants(rows));
+      const heatCanvas = document.createElement("canvas");
+      heatCanvas.width = CANVAS_WIDTH;
+      heatCanvas.height = CANVAS_HEIGHT;
+      const heatCtx = heatCanvas.getContext("2d");
+      const cellW = CANVAS_WIDTH / STORE_WIDTH;
+      const cellH = CANVAS_HEIGHT / STORE_HEIGHT;
+      for (let y = 0; y < STORE_HEIGHT; y += 1) {
+        for (let x = 0; x < STORE_WIDTH; x += 1) {
+          const index = y * STORE_WIDTH + x;
+          const value = (activation[index] - deactivation[index]) / participantCount;
+          heatCtx.fillStyle = heatColor(value);
+          heatCtx.fillRect(x * cellW, y * cellH, Math.ceil(cellW) + 0.4, Math.ceil(cellH) + 0.4);
+        }
+      }
+      heatCtx.save();
+      heatCtx.globalCompositeOperation = "destination-in";
+      heatCtx.drawImage(maskCanvas, 0, 0);
+      heatCtx.restore();
+
+      ctx.drawImage(heatCanvas, 0, 0);
+      ctx.drawImage(bodyOutlineImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    }
+
+    function drawBaseBody(ctx) {
+      const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+      gradient.addColorStop(0, "#fbfaf3");
+      gradient.addColorStop(1, "#ecece4");
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+      ctx.drawImage(bodyTemplateImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    }
+
+    function heatColor(value) {
+      const t = Math.max(0, Math.min(1, Math.abs(value)));
+      const amount = t === 0 ? 0 : Math.pow(t, HEATMAP_DISPLAY_GAMMA);
+      const stops = value >= 0 ? HEATMAP_COLOR_STOPS.positive : HEATMAP_COLOR_STOPS.negative;
+      const color = sampleColorScale(stops, amount);
+      return `rgb(${color.r}, ${color.g}, ${color.b})`;
+    }
+
+    function sampleColorScale(stops, amount) {
+      for (let i = 1; i < stops.length; i += 1) {
+        const previous = stops[i - 1];
+        const next = stops[i];
+        if (amount <= next.at) {
+          const span = next.at - previous.at || 1;
+          return interpolateColor(previous.color, next.color, (amount - previous.at) / span);
+        }
+      }
+      return stops[stops.length - 1].color;
+    }
+
+    function interpolateColor(from, to, amount) {
+      return {
+        r: Math.round(from.r + (to.r - from.r) * amount),
+        g: Math.round(from.g + (to.g - from.g) * amount),
+        b: Math.round(from.b + (to.b - from.b) * amount)
+      };
+    }
+
+    function decodeBits(base64) {
+      const binary = atob(base64 || "");
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    function getBit(bytes, index) {
+      return (bytes[index >> 3] & (1 << (index & 7))) !== 0;
+    }
+
+    function countParticipants(rows) {
+      const sessionIds = new Set(
+        rows
+          .map((row) => row.session_id || row.participant_id || "")
+          .filter(Boolean)
+      );
+      return sessionIds.size || (rows.length ? 1 : 0);
+    }
+
+    function exportCSV() {
+      if (!allRows.length) {
+        alert("No hay datos cargados.");
+        return;
+      }
+      const headers = ["participant_id", "session_id", "class_id", "emotion", "map_type", "painted_pixels", "no_change", "store_width", "store_height", "body_mask_version", "created_at", "mask_bits_b64"];
+      const rows = allRows.map((row) => headers.map((key) => JSON.stringify(row[key] ?? "")).join(","));
+      const blob = new Blob([[headers.join(","), ...rows].join("\n")], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `emotion_maps_${Date.now()}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function showTokenGate() {
+      document.querySelector("main").innerHTML = `
+        <div class="lab-badge">NyPE · Admin</div>
+        <h1>Panel de<br><span>acceso restringido</span></h1>
+        <div class="card token-gate">
+          <div class="card-title">Clave de acceso</div>
+          <div class="field">
+            <label for="token-input">Token</label>
+            <input id="token-input" type="password" autocomplete="off" spellcheck="false">
+          </div>
+          <button id="token-submit" class="btn btn-primary" type="button">Ingresar</button>
+        </div>
+      `;
+      const input = document.getElementById("token-input");
+      document.getElementById("token-submit").addEventListener("click", () => {
+        if (input.value === ADMIN_TOKEN) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("token", input.value);
+          window.location.href = url.toString();
+        } else {
+          alert("Token incorrecto.");
+          input.value = "";
+          input.focus();
+        }
+      });
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") document.getElementById("token-submit").click();
+      });
+    }
+
+    async function deleteClassData() {
+      const classId = ui.classId.value.trim() || "default";
+      if (!allRows.length) {
+        alert("No hay datos cargados. Hacé clic en Actualizar primero.");
+        return;
+      }
+      const n = allRows.length;
+      if (!window.confirm(`Vas a borrar ${n} registros de la clase "${classId}".\n\n¿Estás seguro?`)) {
+        return;
+      }
+      const typed = window.prompt("Ingresá la contraseña para confirmar:");
+      if (typed !== "nype-2025") {
+        alert("Contraseña incorrecta. Operación cancelada.");
+        return;
+      }
+      setStatus("Borrando...", "");
+      ui.deleteButton.disabled = true;
+      try {
+        const res = await fetch(
+          `${SB_REST}?class_id=eq.${encodeURIComponent(classId)}&body_mask_version=eq.${encodeURIComponent(BODY_MASK_VERSION)}`,
+          { method: "DELETE", headers: { ...SB_HEADERS, "Prefer": "return=minimal" } }
+        );
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        }
+        allRows = [];
+        render();
+        setStatus(`${n} registros borrados correctamente.`, "ok");
+      } catch (error) {
+        console.warn(error);
+        setStatus(`Error al borrar: ${error.message}`, "err");
+      }
+      ui.deleteButton.disabled = false;
+    }
+
+    function setStatus(message, type) {
+      ui.status.textContent = message;
+      ui.status.className = `save-status${type ? ` ${type}` : ""}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#039;"
+      }[char]));
+    }
+  })();
+  </script>
+</body>
+</html>

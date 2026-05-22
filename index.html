@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-store, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Mapas corporales · NyPE</title>
+  <link rel="stylesheet" href="./styles.css?v=20260521-1200">
+</head>
+<body>
+  <main class="page">
+    <section id="screen-start" class="screen active">
+      <div class="lab-badge">NyPE · Mapas corporales</div>
+      <h1>Mapas<br><span>corporales</span></h1>
+      <p class="subtitle">
+        Una actividad breve para registrar en qué zonas del cuerpo se sienten cambios cuando aparece una emoción.
+      </p>
+
+      <div class="card">
+        <div class="card-title">Cómo funciona</div>
+        <div class="step-list">
+          <div class="step-item">
+            <div class="step-num">1</div>
+            <div class="step-text">Vas a completar mapas para <strong>enojo</strong> y <strong>tristeza</strong>.</div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">2</div>
+            <div class="step-text">Para cada emoción vas a ver <strong>dos siluetas al mismo tiempo</strong>.</div>
+          </div>
+          <div class="step-item">
+            <div class="step-num">3</div>
+            <div class="step-text">En una pintá lo que se vuelve <strong>más fuerte o rápido</strong>; en la otra, lo que se vuelve <strong>más débil o lento</strong>.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Participante</div>
+        <div class="field">
+          <label for="participant-id">Tu nombre o ID</label>
+          <input id="participant-id" type="text" maxlength="24" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+
+      <button id="start-button" class="btn btn-primary" type="button">Comenzar</button>
+      <p class="credit">Creado por Guillermo Solovey para<br>Neurociencia y Psicología Experimental, UTDT.</p>
+    </section>
+
+    <section id="screen-task" class="screen task-screen">
+      <div class="progress-wrap">
+        <div class="progress-meta">
+          <span id="task-counter">1 / 2</span>
+          <span id="task-phase-chip" class="phase-chip">Dos siluetas</span>
+        </div>
+        <div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div>
+      </div>
+
+      <div class="task-header">
+        <div>
+          <div class="lab-badge compact">Tarea</div>
+          <h2 id="task-title">Enojo</h2>
+        </div>
+        <button id="restart-button" class="btn btn-secondary btn-small" type="button">Reiniciar</button>
+      </div>
+
+      <p id="task-instruction" class="task-instruction"></p>
+
+      <div id="mobile-map-tabs" class="mobile-map-tabs" role="group" aria-label="Elegir silueta">
+        <button class="mobile-map-tab active" data-map-type="activation" type="button">Más fuerte</button>
+        <button class="mobile-map-tab" data-map-type="deactivation" type="button">Más débil</button>
+      </div>
+
+      <div class="task-layout">
+        <div class="body-board">
+          <div class="body-map mobile-active" data-map-type="activation">
+            <div class="body-map-title">Más fuerte o rápida</div>
+            <div class="canvas-wrap">
+              <canvas id="activation-base-canvas" class="base-canvas" width="360" height="620" aria-hidden="true"></canvas>
+              <canvas id="activation-paint-canvas" class="paint-canvas" data-map-type="activation" width="360" height="620" aria-label="Lienzo para pintar zonas con más activación"></canvas>
+            </div>
+            <p class="body-caption">En este cuerpo, pintá las regiones cuya actividad se vuelve más fuerte o más rápida.</p>
+          </div>
+
+          <div class="body-map" data-map-type="deactivation">
+            <div class="body-map-title">Más débil o lenta</div>
+            <div class="canvas-wrap">
+              <canvas id="deactivation-base-canvas" class="base-canvas" width="360" height="620" aria-hidden="true"></canvas>
+              <canvas id="deactivation-paint-canvas" class="paint-canvas" data-map-type="deactivation" width="360" height="620" aria-label="Lienzo para pintar zonas con menor activación"></canvas>
+            </div>
+            <p class="body-caption">En este cuerpo, pintá las regiones cuya actividad se vuelve más débil o más lenta.</p>
+          </div>
+        </div>
+
+        <div class="tool-panel">
+          <div class="card tools-card">
+            <div class="card-title">Herramientas</div>
+
+            <div class="segmented" role="group" aria-label="Herramienta">
+              <button id="tool-paint" class="seg-btn active" type="button">Pintar</button>
+              <button id="tool-erase" class="seg-btn" type="button">Borrar</button>
+            </div>
+
+            <label for="brush-size">Tamaño de trazo: <span id="brush-size-value">24</span> px</label>
+            <input id="brush-size" type="range" min="8" max="54" step="1" value="24">
+
+            <div class="button-grid">
+              <button id="undo-button" class="btn btn-secondary" type="button">Deshacer</button>
+              <button id="clear-button" class="btn btn-secondary" type="button">Limpiar</button>
+            </div>
+          </div>
+
+          <div id="task-error" class="alert alert-error hidden" role="alert"></div>
+          <p id="paint-status" class="paint-status">Pintá al menos una zona para poder guardar.</p>
+          <button id="next-button" class="btn btn-primary" type="button">Guardar y continuar</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-results" class="screen">
+      <div>
+        <div class="lab-badge">Resultados colectivos</div>
+        <h1 class="results-title">Resultados<br><span>colectivos</span></h1>
+      </div>
+
+      <div id="save-status" class="save-status hidden" aria-live="polite"></div>
+
+      <div class="results-grid">
+        <div class="stat-card stat-card-wide">
+          <div class="stat-label">Participantes hasta ahora</div>
+          <div id="participant-count" class="stat-value">0</div>
+        </div>
+      </div>
+      <div class="heatmap-legend" aria-label="Escala de color de los mapas colectivos">
+        <span><i class="legend-swatch diverging"></i>m&aacute;s debilitamiento &larr; neutro/cancelado &rarr; m&aacute;s activaci&oacute;n</span>
+      </div>
+
+      <div id="heatmap-grid" class="heatmap-grid"></div>
+
+      <button id="learn-button" class="btn btn-secondary learn-button" type="button">Seguí aprendiendo</button>
+
+      <button id="reload-heatmaps-button" class="hidden" type="button">Actualizar mapas colectivos</button>
+      <button id="retry-save-button" class="hidden" type="button">Reintentar envío</button>
+    </section>
+
+    <section id="screen-learning" class="screen learning-screen">
+      <div class="lab-badge">Para seguir aprendiendo</div>
+      <h1>Seguí<br><span>aprendiendo</span></h1>
+      <p class="subtitle">
+        Esta actividad está inspirada en el trabajo de Nummenmaa, Glerean, Hari y Hietanen,
+        <a href="https://pubmed.ncbi.nlm.nih.gov/24379370/" target="_blank" rel="noreferrer">Bodily maps of emotions</a>,
+        publicado en PNAS. La versión de clase conserva la idea central, pero simplifica el procedimiento.
+      </p>
+
+      <div class="learning-grid">
+        <article class="learning-card">
+          <h3>La pregunta</h3>
+          <p>El estudio original parte de una idea simple y potente: las emociones no se viven solo como pensamientos o etiquetas, sino también como cambios corporales subjetivos.</p>
+        </article>
+        <article class="learning-card">
+          <h3>El diseño original</h3>
+          <p>Los participantes coloreaban siluetas para indicar dónde sentían aumentos y disminuciones de actividad corporal al experimentar distintas emociones.</p>
+        </article>
+        <article class="learning-card">
+          <h3>Por qué muchos participantes</h3>
+          <p>Una respuesta individual puede variar mucho. Al reunir muchas respuestas, se puede observar si aparecen patrones colectivos relativamente consistentes.</p>
+        </article>
+        <article class="learning-card">
+          <h3>Qué adaptamos acá</h3>
+          <p>Para una actividad breve usamos dos emociones, pintura binaria y consignas separadas de activación y debilitamiento. Después combinamos esas respuestas en un mapa cálido/frío.</p>
+        </article>
+        <article class="learning-card">
+          <h3>Cómo leer el mapa</h3>
+          <p>Los colores cálidos indican zonas con más reportes de activación. Los fríos indican zonas con más reportes de debilitamiento o apagamiento.</p>
+        </article>
+        <article class="learning-card">
+          <h3>Objetivo en clase</h3>
+          <p>No buscamos diagnosticar ni medir fisiología directamente. Buscamos discutir cómo se recolectan autorreportes, cómo se agregan datos y cómo se interpreta un patrón grupal.</p>
+        </article>
+      </div>
+
+      <button id="back-results-button" class="btn btn-secondary learn-button" type="button">Volver a resultados</button>
+    </section>
+  </main>
+
+  <script src="./app.js?v=20260521-1200" defer></script>
+</body>
+</html>
